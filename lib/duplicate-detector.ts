@@ -20,6 +20,45 @@ import type { ScanLogger } from "./scan-log";
  * trashing a favorite is the worst outcome this tool can produce. When a group
  * has several favorites — or none — the remaining criteria decide as before.
  */
+/**
+ * Compatibility check between two media items:
+ * - Photos and videos are never mixed in the same duplicate group.
+ * - If both items are videos, their runtimes must match within 2000ms (2s).
+ */
+export function areMediaItemsCompatible(a: GpdMediaItem, b: GpdMediaItem): boolean {
+  const aIsVid = a.duration !== undefined && a.duration > 0;
+  const bIsVid = b.duration !== undefined && b.duration > 0;
+  if (aIsVid !== bIsVid) return false;
+  if (aIsVid && bIsVid) {
+    if (Math.abs((a.duration ?? 0) - (b.duration ?? 0)) > 2000) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Partitions an array of candidate media items into mutually compatible sub-clusters
+ * with at least 2 items each.
+ */
+export function filterCompatibleClusters(items: GpdMediaItem[]): GpdMediaItem[][] {
+  const clusters: GpdMediaItem[][] = [];
+  for (const item of items) {
+    let placed = false;
+    for (const cluster of clusters) {
+      if (cluster.every((existing) => areMediaItemsCompatible(existing, item))) {
+        cluster.push(item);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      clusters.push([item]);
+    }
+  }
+  return clusters.filter((c) => c.length >= 2);
+}
+
 export function selectDefaultKeep(items: GpdMediaItem[]): string {
   const qualityScore = (x: GpdMediaItem) =>
     x.isOriginalQuality === true ? 2 : x.isOriginalQuality === false ? 0 : 1;
@@ -322,20 +361,23 @@ export async function fullDetectDuplicates(
   console.log(`[GPD] scan complete: ${totalMs}ms total`);
   await logger?.phaseComplete("communityDetectionMs", communityDetectionMs);
 
-  // Map indices back to media items and build DuplicateGroup objects
-  const groups: DuplicateGroup[] = indexGroups.map((indices, i) => {
-    // Sort items by upload date ascending so the oldest is first
-    const items = indices
+  // Map indices back to media items and build DuplicateGroup objects with compatibility validation
+  const groups: DuplicateGroup[] = [];
+  let groupCounter = 0;
+  for (const indices of indexGroups) {
+    const rawItems = indices
       .map((idx) => candidates[validIndices[idx]])
       .sort((a, b) => (a.creationTimestamp ?? 0) - (b.creationTimestamp ?? 0));
-    const mediaKeys = items.map((item) => item.mediaKey);
-    return {
-      id: `group-${i}`,
-      mediaKeys,
-      originalMediaKey: selectDefaultKeep(items),
-      similarity: threshold, // Approximate; all items are at least this similar
-    };
-  });
+    const validClusters = filterCompatibleClusters(rawItems);
+    for (const cluster of validClusters) {
+      groups.push({
+        id: `group-${groupCounter++}`,
+        mediaKeys: cluster.map((item) => item.mediaKey),
+        originalMediaKey: selectDefaultKeep(cluster),
+        similarity: threshold,
+      });
+    }
+  }
 
   const timing: ScanTiming = {
     totalItems: mediaItems.length,
@@ -476,19 +518,23 @@ export function withinGroupDuplicates(
     components.get(root)!.push(withEmb[i].item);
   }
 
-  return [...components.values()]
-    .filter((g) => g.length >= 2)
-    .map((items, i) => {
-      const sorted = [...items].sort(
-        (a, b) => (a.creationTimestamp ?? 0) - (b.creationTimestamp ?? 0),
-      );
-      return {
-        id: `group-${groupIdOffset + i}`,
-        mediaKeys: sorted.map((x) => x.mediaKey),
-        originalMediaKey: selectDefaultKeep(items),
+  const groups: DuplicateGroup[] = [];
+  let groupCounter = groupIdOffset;
+  for (const items of components.values()) {
+    const sorted = [...items].sort(
+      (a, b) => (a.creationTimestamp ?? 0) - (b.creationTimestamp ?? 0),
+    );
+    const validClusters = filterCompatibleClusters(sorted);
+    for (const cluster of validClusters) {
+      groups.push({
+        id: `group-${groupCounter++}`,
+        mediaKeys: cluster.map((x) => x.mediaKey),
+        originalMediaKey: selectDefaultKeep(cluster),
         similarity: threshold,
-      };
-    });
+      });
+    }
+  }
+  return groups;
 }
 
 /**
@@ -682,18 +728,23 @@ export async function smartDetectDuplicates(
   console.log(`[GPD] scan complete: ${totalMs}ms total`);
   await logger?.phaseComplete("communityDetectionMs", communityDetectionMs);
 
-  // Map indices back to GpdMediaItems
-  const groups: DuplicateGroup[] = indexGroups.map((indices, i) => {
-    const items = indices
+  // Map indices back to GpdMediaItems with compatibility validation
+  const groups: DuplicateGroup[] = [];
+  let groupCounter = 0;
+  for (const indices of indexGroups) {
+    const rawItems = indices
       .map((idx) => subset[validIndices[idx]])
       .sort((a, b) => (a.creationTimestamp ?? 0) - (b.creationTimestamp ?? 0));
-    return {
-      id: `group-${i}`,
-      mediaKeys: items.map((x) => x.mediaKey),
-      originalMediaKey: selectDefaultKeep(items),
-      similarity: threshold,
-    };
-  });
+    const validClusters = filterCompatibleClusters(rawItems);
+    for (const cluster of validClusters) {
+      groups.push({
+        id: `group-${groupCounter++}`,
+        mediaKeys: cluster.map((x) => x.mediaKey),
+        originalMediaKey: selectDefaultKeep(cluster),
+        similarity: threshold,
+      });
+    }
+  }
 
   return {
     groups: groups.sort((a, b) => b.mediaKeys.length - a.mediaKeys.length),
