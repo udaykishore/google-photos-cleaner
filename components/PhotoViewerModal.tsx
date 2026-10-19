@@ -408,11 +408,21 @@ export function PhotoViewerModal({
           py: 1.5,
           borderTop: "1px solid rgba(255,255,255,0.1)",
         }}>
-        {/* Metadata */}
-        <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", flex: 1 }}>
+        {/* Metadata & Diff Inspector */}
+        <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap", flex: 1 }}>
           {item.resWidth && item.resHeight && (
             <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.6)", fontFamily: "monospace" }}>
               {item.resWidth}×{item.resHeight}
+              {(() => {
+                const keptItem = items.find((i) => keptSet.has(i.mediaKey))
+                if (!isKept && keptItem?.resWidth && keptItem?.resHeight) {
+                  const thisPx = item.resWidth * item.resHeight
+                  const keptPx = keptItem.resWidth * keptItem.resHeight
+                  if (thisPx < keptPx) return " (Kept has higher res)"
+                  if (thisPx > keptPx) return " (Higher res than kept)"
+                }
+                return ""
+              })()}
             </Typography>
           )}
           {takenDate && (
@@ -423,6 +433,12 @@ export function PhotoViewerModal({
           {uploadedDate && (
             <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.6)" }}>
               <span style={{ opacity: 0.6 }}>Uploaded </span>{uploadedDate}
+            </Typography>
+          )}
+          {/* Orientation label */}
+          {item.resWidth && item.resHeight && (
+            <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.4)" }}>
+              {item.resWidth >= item.resHeight ? "Landscape" : "Portrait"}
             </Typography>
           )}
         </Box>
