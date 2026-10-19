@@ -65,21 +65,80 @@ self.addEventListener("message", async (event: MessageEvent) => {
     for (const { localIdx, blob } of items) {
       try {
         const bitmap = await createImageBitmap(blob);
-        const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-        const ctx = canvas.getContext("2d")!;
-        ctx.drawImage(bitmap, 0, 0);
-        const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+        const w = bitmap.width;
+        const h = bitmap.height;
+        const angles = [0, 90, 180, 270];
+        const angleEmbeddings: Float32Array[] = [];
 
-        const result = embedder!.embed(imageData);
-        if (result?.embeddings?.[0]?.floatEmbedding) {
-          // .slice(0) to detach the buffer from any shared backing store before transfer
-          const buf = new Float32Array(
-            result.embeddings[0].floatEmbedding,
-          ).buffer.slice(0);
-          results.push({ localIdx, embedding: buf });
+        for (const angle of angles) {
+          const isTransposed = angle === 90 || angle === 270;
+          const cw = isTransposed ? h : w;
+          const ch = isTransposed ? w : h;
+          const canvas = new OffscreenCanvas(cw, ch);
+          const ctx = canvas.getContext("2d")!;
+
+          if (angle === 0) {
+            ctx.drawImage(bitmap, 0, 0);
+          } else {
+            ctx.translate(cw / 2, ch / 2);
+            ctx.rotate((angle * Math.PI) / 180);
+            ctx.drawImage(bitmap, -w / 2, -h / 2);
+          }
+
+          const imageData = ctx.getImageData(0, 0, cw, ch);
+
+          // Black frame / low-variance guard: protect against solid black opening frames
+          const px = imageData.data;
+          let sumL = 0;
+          let sumSqL = 0;
+          const sampleStep = 16;
+          let sampleCount = 0;
+          for (let p = 0; p < px.length; p += sampleStep) {
+            const lum = 0.299 * px[p] + 0.587 * px[p + 1] + 0.114 * px[p + 2];
+            sumL += lum;
+            sumSqL += lum * lum;
+            sampleCount++;
+          }
+          const meanL = sumL / sampleCount;
+          const varL = sumSqL / sampleCount - meanL * meanL;
+          const isBlank = meanL < 18 && varL < 20;
+
+          if (isBlank) {
+            // Assign a unique unit vector per item so black frames never false-match
+            const dimSize = 1024;
+            const uniqueVec = new Float32Array(dimSize);
+            let norm = 0;
+            for (let vi = 0; vi < dimSize; vi++) {
+              const v = Math.sin((localIdx + 1) * 9973 + vi * 7919 + angle);
+              uniqueVec[vi] = v;
+              norm += v * v;
+            }
+            norm = Math.sqrt(norm);
+            for (let vi = 0; vi < dimSize; vi++) uniqueVec[vi] /= norm;
+            angleEmbeddings.push(uniqueVec);
+          } else {
+            const result = embedder!.embed(imageData);
+            if (result?.embeddings?.[0]?.floatEmbedding) {
+              angleEmbeddings.push(
+                new Float32Array(result.embeddings[0].floatEmbedding),
+              );
+            }
+          }
         }
 
         bitmap.close();
+
+        if (angleEmbeddings.length > 0) {
+          const singleDim = angleEmbeddings[0].length;
+          while (angleEmbeddings.length < 4) {
+            angleEmbeddings.push(angleEmbeddings[0]);
+          }
+          const combined = new Float32Array(4 * singleDim);
+          for (let aIdx = 0; aIdx < 4; aIdx++) {
+            combined.set(angleEmbeddings[aIdx], aIdx * singleDim);
+          }
+          results.push({ localIdx, embedding: combined.buffer.slice(0) });
+        }
       } catch {
         // Skip unprocessable images
       }
@@ -140,13 +199,21 @@ self.addEventListener("message", async (event: MessageEvent) => {
         parent[find(a)] = find(b);
       };
 
+      const baseDim = dim % 4 === 0 && dim >= 512 ? Math.floor(dim / 4) : dim;
+      const numRots = dim % 4 === 0 && dim >= 512 ? 4 : 1;
+
       for (let i = 0; i < bucket.length; i++) {
         for (let j = i + 1; j < bucket.length; j++) {
           const a = embeddings[bucket[i]];
           const b = embeddings[bucket[j]];
-          let dot = 0;
-          for (let k = 0; k < dim; k++) dot += a[k] * b[k];
-          if (dot >= threshold) union(i, j);
+          let maxDot = -1;
+          for (let rot = 0; rot < numRots; rot++) {
+            let dot = 0;
+            const bOffset = rot * baseDim;
+            for (let k = 0; k < baseDim; k++) dot += a[k] * b[bOffset + k];
+            if (dot > maxDot) maxDot = dot;
+          }
+          if (maxDot >= threshold) union(i, j);
         }
       }
 
@@ -276,13 +343,21 @@ function matMul(
   const rowsB = endB - startB;
   const result = new Float32Array(rowsA * rowsB);
 
+  const baseDim = dim % 4 === 0 && dim >= 512 ? Math.floor(dim / 4) : dim;
+  const numRots = dim % 4 === 0 && dim >= 512 ? 4 : 1;
+
   for (let i = 0; i < rowsA; i++) {
     const aRow = A[startA + i];
     for (let j = 0; j < rowsB; j++) {
       const bRow = B[startB + j];
-      let dot = 0;
-      for (let k = 0; k < dim; k++) dot += aRow[k] * bRow[k];
-      result[i * rowsB + j] = dot;
+      let maxDot = -1;
+      for (let rot = 0; rot < numRots; rot++) {
+        let dot = 0;
+        const bOffset = rot * baseDim;
+        for (let k = 0; k < baseDim; k++) dot += aRow[k] * bRow[bOffset + k];
+        if (dot > maxDot) maxDot = dot;
+      }
+      result[i * rowsB + j] = maxDot;
     }
   }
 
