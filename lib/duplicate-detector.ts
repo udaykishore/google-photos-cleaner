@@ -777,7 +777,7 @@ async function fetchThumbnails(
 // Step 2: Compute embeddings via MediaPipe worker pool
 // ============================================================
 
-const WORKER_BATCH_SIZE = 20;
+const WORKER_BATCH_SIZE = 50;
 
 async function computeEmbeddings(
   blobs: (Blob | null)[],
@@ -828,7 +828,7 @@ async function computeEmbeddings(
     const workerUrl = chrome.runtime.getURL("scripts/embedder-worker.js");
     const numWorkers = Math.max(
       1,
-      Math.min(navigator.hardwareConcurrency ?? 4, 8),
+      Math.min(navigator.hardwareConcurrency ?? 8, 32),
     );
 
     console.log(
