@@ -142,7 +142,7 @@ export function ScanConfig({
                 <strong>{settings.similarityThreshold}</strong>
               </Typography>
               <Slider
-                min={0.9}
+                min={0.75}
                 max={1.0}
                 step={0.01}
                 value={settings.similarityThreshold}

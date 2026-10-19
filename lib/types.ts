@@ -256,6 +256,6 @@ export interface ScanSettings {
 
 export const DEFAULT_SETTINGS: ScanSettings = {
   similarityThreshold: 0.99,
-  scanMode: "smart",
+  scanMode: "full",
   smartWindowSec: 1,
 };
