@@ -33,6 +33,13 @@ export function selectDefaultKeep(items: GpdMediaItem[]): string {
       (b.resWidth ?? 0) * (b.resHeight ?? 0) -
       (a.resWidth ?? 0) * (a.resHeight ?? 0);
     if (pxDiff !== 0) return pxDiff;
+
+    // Orientation priority: prefer landscape (resWidth >= resHeight) over portrait/rotated
+    const isLand = (x: GpdMediaItem) =>
+      (x.resWidth ?? 0) >= (x.resHeight ?? 0) ? 1 : 0;
+    const orientDiff = isLand(b) - isLand(a);
+    if (orientDiff !== 0) return orientDiff;
+
     return (a.creationTimestamp ?? 0) - (b.creationTimestamp ?? 0);
   });
   return best[0].mediaKey;
