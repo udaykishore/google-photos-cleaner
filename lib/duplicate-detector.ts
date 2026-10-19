@@ -93,6 +93,50 @@ export function selectDefaultKeep(items: GpdMediaItem[]): string {
  * - API doesn't allow to trash one of them without trashing others
  * So keep only the first item we see for each dedupKey.
  */
+/**
+ * Groups byte-identical items by metadata signature (size + resolution + capture timestamp).
+ * For exact duplicates (e.g. re-uploaded or identical copies), only one item needs
+ * to be fetched and embedded. The remaining duplicates are merged into the final group.
+ */
+export function groupExactMetadataDuplicates(items: GpdMediaItem[]): {
+  representatives: GpdMediaItem[];
+  exactMatchMap: Map<string, GpdMediaItem[]>;
+} {
+  const sigMap = new Map<string, GpdMediaItem[]>();
+  const exactMatchMap = new Map<string, GpdMediaItem[]>();
+
+  for (const item of items) {
+    if (item.size && item.size > 0 && item.resWidth && item.resHeight && item.timestamp) {
+      const sig = `${item.size}_${item.resWidth}x${item.resHeight}_${item.timestamp}`;
+      if (!sigMap.has(sig)) sigMap.set(sig, []);
+      sigMap.get(sig)!.push(item);
+    }
+  }
+
+  const representatives: GpdMediaItem[] = [];
+  const processedKeys = new Set<string>();
+
+  for (const item of items) {
+    if (processedKeys.has(item.mediaKey)) continue;
+
+    if (item.size && item.size > 0 && item.resWidth && item.resHeight && item.timestamp) {
+      const sig = `${item.size}_${item.resWidth}x${item.resHeight}_${item.timestamp}`;
+      const group = sigMap.get(sig);
+      if (group && group.length > 1) {
+        representatives.push(group[0]);
+        exactMatchMap.set(group[0].mediaKey, group.slice(1));
+        for (const m of group) processedKeys.add(m.mediaKey);
+        continue;
+      }
+    }
+
+    representatives.push(item);
+    processedKeys.add(item.mediaKey);
+  }
+
+  return { representatives, exactMatchMap };
+}
+
 export function dedupeByDedupKey(items: GpdMediaItem[]): GpdMediaItem[] {
   const seen = new Set<string>();
   const uniqueItems: GpdMediaItem[] = [];
@@ -243,9 +287,12 @@ export async function fullDetectDuplicates(
   // Include items with thumbnails. Video posters work too — two copies of the
   // same clip have identical poster frames, which produce near-identical
   // embeddings.
-  const candidates = dedupedItems.filter((item) => item.thumb);
+  const allCandidates = dedupedItems.filter((item) => item.thumb);
+  // Fast-path metadata pre-filtering: extract exact duplicates (identical size, resolution, and timestamp)
+  // so only one representative item needs to be fetched and embedded.
+  const { representatives: candidates, exactMatchMap } = groupExactMetadataDuplicates(allCandidates);
   console.log(
-    `[GPD] detectDuplicates: ${mediaItems.length} items → ${candidates.length} candidates`,
+    `[GPD] detectDuplicates: ${mediaItems.length} items → ${allCandidates.length} total (${candidates.length} unique candidates to embed, ${allCandidates.length - candidates.length} exact matches pre-grouped)`,
   );
 
   const emptyTiming = (extra: Partial<ScanTiming> = {}): ScanTiming => ({
@@ -370,11 +417,34 @@ export async function fullDetectDuplicates(
       .sort((a, b) => (a.creationTimestamp ?? 0) - (b.creationTimestamp ?? 0));
     const validClusters = filterCompatibleClusters(rawItems);
     for (const cluster of validClusters) {
+      // Re-attach any exact metadata duplicates for representatives in this cluster
+      const expandedCluster: GpdMediaItem[] = [...cluster];
+      for (const item of cluster) {
+        const exactMatches = exactMatchMap.get(item.mediaKey);
+        if (exactMatches) {
+          expandedCluster.push(...exactMatches);
+          exactMatchMap.delete(item.mediaKey);
+        }
+      }
       groups.push({
         id: `group-${groupCounter++}`,
-        mediaKeys: cluster.map((item) => item.mediaKey),
-        originalMediaKey: selectDefaultKeep(cluster),
+        mediaKeys: expandedCluster.map((item) => item.mediaKey),
+        originalMediaKey: selectDefaultKeep(expandedCluster),
         similarity: threshold,
+      });
+    }
+  }
+
+  // Append standalone exact duplicate groups that were not part of any broader visual cluster
+  for (const [repKey, exactItems] of exactMatchMap.entries()) {
+    const rep = allCandidates.find((c) => c.mediaKey === repKey);
+    if (rep) {
+      const fullExactGroup = [rep, ...exactItems];
+      groups.push({
+        id: `group-${groupCounter++}`,
+        mediaKeys: fullExactGroup.map((item) => item.mediaKey),
+        originalMediaKey: selectDefaultKeep(fullExactGroup),
+        similarity: 1.0,
       });
     }
   }
