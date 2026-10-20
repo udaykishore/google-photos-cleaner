@@ -136,25 +136,19 @@ async function getAllMediaItems(requestId, args) {
       window.location.pathname.match(/^\/u\/\d+\//)?.[0] || "/"
 
     do {
-      let page = null
-      try {
-        page = await withTimeout(
-          gptkApi.getItemsByUploadedDate(nextPageId),
-          PAGE_TIMEOUT_MS,
-          "Fetching page from Google Photos"
+      const page = await withTimeout(
+        gptkApi.getItemsByUploadedDate(nextPageId),
+        PAGE_TIMEOUT_MS,
+        "Fetching page from Google Photos"
+      )
+      if (!page || !page.items || page.items.length === 0) {
+        console.log(
+          `[GPD] Pagination completed (end of library or empty page). Fetched ${mediaItems.length} total items.`
         )
-      } catch (fetchErr) {
-        console.warn("[GPD] getItemsByUploadedDate failed, falling back to getItemsByTakenDate:", fetchErr)
-        page = await withTimeout(
-          gptkApi.getItemsByTakenDate(null, "library", nextPageId),
-          PAGE_TIMEOUT_MS,
-          "Fetching page by taken date"
-        )
-      }
-      if (!page) {
-        console.warn("GPD: Empty page response, stopping pagination")
         break
       }
+      // Pacing delay (750ms) to prevent Google server-side rate limits on deep library scans
+      await new Promise((r) => setTimeout(r, 750))
       if (page.items && page.items.length > 0) {
         for (const item of page.items) {
           // Items are sorted newest-first — stop when we hit the cached watermark
@@ -212,7 +206,18 @@ async function getAllMediaItems(requestId, args) {
 
     postResultChunked("getAllMediaItems", requestId, mediaItems)
   } catch (error) {
-    postError("getAllMediaItems", requestId, error)
+    if (mediaItems && mediaItems.length > 0) {
+      console.warn(`[GPD] Pagination halted (${error.message}), proceeding with ${mediaItems.length} items fetched so far.`)
+      postProgress(
+        requestId,
+        mediaItems.length,
+        `Rate limit reached. Proceeding with ${mediaItems.length} items fetched so far.`,
+        "getAllMediaItems"
+      )
+      postResultChunked("getAllMediaItems", requestId, mediaItems)
+    } else {
+      postError("getAllMediaItems", requestId, error)
+    }
   }
 }
 
