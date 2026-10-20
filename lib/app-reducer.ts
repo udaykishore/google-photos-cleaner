@@ -1,4 +1,4 @@
-// App state machine for Google Photos Deduper.
+// App state machine for Google Photos Cleaner.
 // Extracted from tabs/app.tsx so it can be unit-tested independently.
 
 import type {

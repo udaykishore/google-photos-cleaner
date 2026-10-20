@@ -7,7 +7,7 @@ import type {
   GptkProgressMessage,
 } from "../lib/types"
 
-// Service worker for Google Photos Deduper.
+// Service worker for Google Photos Cleaner.
 // Routes messages between the app tab and the Google Photos tab.
 
 // Bidirectional tab mapping: appTabId <-> gpTabId

@@ -843,7 +843,7 @@ export default function App() {
       <AppBar position="sticky">
         <Toolbar>
           <Typography variant="h6" fontWeight={600} sx={{ flexGrow: 1 }}>
-            Google Photos Deduper
+            Google Photos Cleaner
           </Typography>
           {"accountEmail" in state && state.accountEmail && (
             <Typography variant="body2" sx={{ opacity: 0.8 }}>

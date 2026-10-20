@@ -1,4 +1,4 @@
-# Google Photos Deduper
+# Google Photos Cleaner
 
 [![CI Badge](https://github.com/mtalcott/google-photos-deduper/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mtalcott/google-photos-deduper/actions/workflows/ci.yml?query=branch%3Amain)
 
@@ -22,7 +22,7 @@ Uses [Google Photos Toolkit (GPTK)](https://github.com/xob0t/Google-Photos-Toolk
 ## Usage
 
 1. Open Google Photos in Chrome with the extension installed
-2. Click the extension icon → **Open Deduper**
+2. Click the extension icon → **Open Cleaner**
 3. Click **Scan Library** - the extension fetches your media items and uses MediaPipe image embeddings locally to find visually identical photos
 4. Review the duplicate groups, select which to keep, and click **Move to Trash**
 
