@@ -1,95 +1,72 @@
 # Google Photos Cleaner
 
-[![CI Badge](https://github.com/mtalcott/google-photos-deduper/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mtalcott/google-photos-deduper/actions/workflows/ci.yml?query=branch%3Amain)
+A Chrome extension that finds and removes duplicate photos and videos directly in your Google Photos library—100% client-side, with zero external cloud uploads and zero OAuth setup.
 
-A Chrome extension that finds and removes duplicate photos from your Google Photos library.
+Forked and enhanced from [Mack Talcott's](https://github.com/mtalcott/google-photos-deduper) original `google-photos-deduper` project.
 
-Uses [Google Photos Toolkit (GPTK)](https://github.com/xob0t/Google-Photos-Toolkit) to access your library via Google Photos' web interface. Built with [Plasmo](https://plasmo.com/), [MediaPipe](https://developers.google.com/mediapipe), [React](https://react.dev/), and [MUI](https://mui.com/). 
+---
 
-## Demo
+## Key Enhancements in this Fork
 
-[![Demo](https://google-photos-deduper-public.s3.amazonaws.com/demo-2026-l.webp?1)](https://youtu.be/SeOX98uTVwQ)
+* **4-Angle Rotation Invariance:** Evaluates 0°, 90°, 180°, and 270° orientation embeddings so duplicate photos taken in portrait vs. landscape or rotated sideways are reliably detected.
+* **Blank & Dark Frame Protection:** Video thumbnails that open with a dark fade-in, black frame, compression noise, or solid color title screen are detected and assigned orthogonal random vectors to prevent false-positive video clustering.
+* **Strict Video Duration Matching:** Enforces runtime duration matching within 2 seconds and ensures photos and videos are never mixed in duplicate groups.
+* **Exact-Match Fast Path:** Pre-groups byte-identical files (matching size, resolution, and capture timestamp) before fetching thumbnails to drastically speed up large scans.
+* **Adaptive Rate-Limit Recovery:** Automatically handles Google Photos' internal `RESOURCE_EXHAUSTED` (status 8) throttling with exponential backoff and request pacing, allowing deep library scans to finish reliably without crashing.
+* **Soft Trash Confirmation & Difference Inspector:** Inspect resolution, orientation, and quality differences between duplicate candidates and the designated keep item before confirming moves to trash.
+* **Landscape Preference in Keep Selection:** Prioritizes landscape orientation alongside starred favorites and original quality in tie-breakers.
 
-## Install
+---
 
-**[⬇ Download latest release](https://github.com/mtalcott/google-photos-deduper/releases/latest/download/google-photos-deduper.zip)**
+## How It Works
 
-1. Unzip to a permanent folder (don't delete it — Chrome needs it to stay there)
-2. Open `chrome://extensions` → enable **Developer mode** (toggle, top-right)
-3. Click **Load unpacked** → select the unzipped folder
-4. Pin the extension icon in your toolbar for easy access
+Google deprecated write access in the official Google Photos Library API in 2025. This extension uses [Google Photos Toolkit (GPTK)](https://github.com/xob0t/Google-Photos-Toolkit) by [@xob0t](https://github.com/xob0t) to interact with your library via Google Photos' web interface, and runs [MediaPipe](https://developers.google.com/mediapipe)'s MobileNet V3 image embedder locally in a Web Worker to compute visual embeddings.
 
-## Usage
+All processing happens entirely in your browser—no photos, thumbnails, or metadata ever leave your computer.
 
-1. Open Google Photos in Chrome with the extension installed
-2. Click the extension icon → **Open Cleaner**
-3. Click **Scan Library** - the extension fetches your media items and uses MediaPipe image embeddings locally to find visually identical photos
-4. Review the duplicate groups, select which to keep, and click **Move to Trash**
+---
 
-No OAuth setup. No Google Cloud project. No data leaves your browser.
+## Install & Usage
+
+1. Clone or download this repository.
+2. Build the extension:
+   ```bash
+   npm install
+   npm run build
+   ```
+3. Open `chrome://extensions` in Google Chrome and enable **Developer mode** (toggle in the top-right corner).
+4. Click **Load unpacked** and select the `build/chrome-mv3-prod/` directory.
+5. Navigate to [Google Photos](https://photos.google.com/).
+6. Click the extension icon in your toolbar → **Open Cleaner**.
+7. Select **Smart** or **Full** scan and click **Scan Library**.
+8. Review duplicate clusters, inspect differences, and click **Move to Trash**.
+
+---
 
 ## Development
 
-### Setup
-
-**Prerequisites:** Google Chrome, Node.js 22
+**Prerequisites:** Google Chrome, Node.js 20+
 
 ```bash
-git clone https://github.com/mtalcott/google-photos-deduper.git
-cd google-photos-deduper
+# Clone the repository
+git clone https://github.com/udaykishore/google-photos-cleaner.git
+cd google-photos-cleaner
 git submodule update --init --recursive
+
+# Install dependencies
 npm install
-npm run dev  # builds into build/chrome-mv3-dev/
-```
 
-Load in Chrome: `chrome://extensions` → enable **Developer mode** → **Load unpacked** → select `build/chrome-mv3-dev/`.
-
-### Commands
-
-```bash
-# Start the Plasmo dev server (rebuilds on file changes)
+# Start Plasmo dev server (builds to build/chrome-mv3-dev/)
 npm run dev
 
-# Build the Chrome extension (builds into build/chrome-mv3-prod/)
+# Production build (builds to build/chrome-mv3-prod/)
 npm run build
-
-# Run unit and integration tests
-npm test
-
-# Run full E2E tests (requires Chrome with remote debugging — see below)
-npm run test:e2e
 ```
 
-### Full E2E Tests
+---
 
-Full E2E tests connect to a running Chrome instance via the [Chrome DevTools Protocol (CDP)](https://chromedevtools.github.io/devtools-protocol/). Start Chrome with remote debugging before running:
+## Credits & Acknowledgments
 
-**macOS:**
-```bash
-"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
-  --remote-debugging-port=9222 \
-  --user-data-dir="$HOME/chrome-debug"
-```
-
-**Windows [WSL](https://learn.microsoft.com/en-us/windows/wsl/):**
-```bash
-"/mnt/c/Program Files/Google/Chrome/Application/chrome.exe" \
-  --remote-debugging-port=9222 \
-  --user-data-dir="C:\Users\<you>\Chrome Profiles\chrome-debug"
-```
-
-Then run: `npm run test:e2e`
-
-## Motivation
-
-Google deprecated the Photos Library API's write access in 2025, and duplicate detection has never been a built-in Google Photos feature. This extension uses [@xob0t](https://github.com/xob0t)'s [Google Photos Toolkit (GPTK)](https://github.com/xob0t/Google-Photos-Toolkit) — an open-source wrapper around Google Photos' undocumented web API — to access your library without OAuth, and runs MediaPipe's MobileNet V3 image embedder locally to find visually identical photos.
-
-## Support
-
-Found a bug or have a feature request? [Open an issue](https://github.com/mtalcott/google-photos-deduper/issues/new/choose).
-
-Have questions? [Post on the discussions page](https://github.com/mtalcott/google-photos-deduper/discussions).
-
-## Say Thanks
-
-If you found this project useful, give it a star!
+* **[Mack Talcott](https://github.com/mtalcott/google-photos-deduper):** Creator of the original Google Photos Deduper extension and core architecture.
+* **[@xob0t](https://github.com/xob0t):** Author of [Google Photos Toolkit (GPTK)](https://github.com/xob0t/Google-Photos-Toolkit).
+* **Gemini Spark:** AI pair-programming partner for rate-limiting resilience, blank-frame vector isolation, and debugging.
