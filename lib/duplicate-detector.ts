@@ -26,11 +26,15 @@ import type { ScanLogger } from "./scan-log";
  * - If both items are videos, their runtimes must match within 2000ms (2s).
  */
 export function areMediaItemsCompatible(a: GpdMediaItem, b: GpdMediaItem): boolean {
-  const aIsVid = a.duration !== undefined && a.duration > 0;
-  const bIsVid = b.duration !== undefined && b.duration > 0;
+  const isVideoFile = (item: GpdMediaItem) =>
+    (item.duration !== undefined && item.duration > 0) ||
+    Boolean(item.fileName && /\.(mp4|mov|avi|mkv|webm|m4v|3gp|flv|wmv)$/i.test(item.fileName));
+
+  const aIsVid = isVideoFile(a);
+  const bIsVid = isVideoFile(b);
   if (aIsVid !== bIsVid) return false;
   if (aIsVid && bIsVid) {
-    if (Math.abs((a.duration ?? 0) - (b.duration ?? 0)) > 2000) {
+    if (a.duration && b.duration && Math.abs(a.duration - b.duration) > 2000) {
       return false;
     }
   }
@@ -164,7 +168,7 @@ const THUMB_HEIGHT = 200;
 
 const EMBEDDING_DB_NAME = "gpd-embeddings";
 const EMBEDDING_STORE = "embeddings";
-const EMBEDDING_CACHE_VERSION = 1;
+const EMBEDDING_CACHE_VERSION = 2;
 
 function openEmbeddingDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

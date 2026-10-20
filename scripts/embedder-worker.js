@@ -4031,18 +4031,74 @@
       for (const { localIdx, blob } of items) {
         try {
           const bitmap = await createImageBitmap(blob);
-          const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-          const ctx = canvas.getContext("2d");
-          ctx.drawImage(bitmap, 0, 0);
-          const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
-          const result = embedder.embed(imageData);
-          if (result?.embeddings?.[0]?.floatEmbedding) {
-            const buf = new Float32Array(
-              result.embeddings[0].floatEmbedding
-            ).buffer.slice(0);
-            results.push({ localIdx, embedding: buf });
+          const w2 = bitmap.width;
+          const h2 = bitmap.height;
+          const angles = [0, 90, 180, 270];
+          const angleEmbeddings = [];
+          for (const angle of angles) {
+            const isTransposed = angle === 90 || angle === 270;
+            const cw = isTransposed ? h2 : w2;
+            const ch = isTransposed ? w2 : h2;
+            const canvas = new OffscreenCanvas(cw, ch);
+            const ctx = canvas.getContext("2d");
+            if (angle === 0) {
+              ctx.drawImage(bitmap, 0, 0);
+            } else {
+              ctx.translate(cw / 2, ch / 2);
+              ctx.rotate(angle * Math.PI / 180);
+              ctx.drawImage(bitmap, -w2 / 2, -h2 / 2);
+            }
+            const imageData = ctx.getImageData(0, 0, cw, ch);
+            const px = imageData.data;
+            let sumL = 0;
+            let sumSqL = 0;
+            const sampleStep = 8;
+            let sampleCount = 0;
+            for (let p2 = 0; p2 < px.length; p2 += sampleStep) {
+              const lum = 0.299 * px[p2] + 0.587 * px[p2 + 1] + 0.114 * px[p2 + 2];
+              sumL += lum;
+              sumSqL += lum * lum;
+              sampleCount++;
+            }
+            const meanL = sumL / sampleCount;
+            const varL = sumSqL / sampleCount - meanL * meanL;
+            const stdL = Math.sqrt(Math.max(0, varL));
+            const isBlank = meanL < 50 && stdL < 22 || stdL < 9 || meanL > 220 && stdL < 18;
+            if (isBlank) {
+              const dimSize = 1024;
+              const uniqueVec = new Float32Array(dimSize);
+              const randomBuf = new Uint32Array(dimSize);
+              crypto.getRandomValues(randomBuf);
+              let norm = 0;
+              for (let vi2 = 0; vi2 < dimSize; vi2++) {
+                const v2 = randomBuf[vi2] / 4294967295 * 2 - 1;
+                uniqueVec[vi2] = v2;
+                norm += v2 * v2;
+              }
+              norm = Math.sqrt(norm);
+              for (let vi2 = 0; vi2 < dimSize; vi2++) uniqueVec[vi2] /= norm;
+              angleEmbeddings.push(uniqueVec);
+            } else {
+              const result = embedder.embed(imageData);
+              if (result?.embeddings?.[0]?.floatEmbedding) {
+                angleEmbeddings.push(
+                  new Float32Array(result.embeddings[0].floatEmbedding)
+                );
+              }
+            }
           }
           bitmap.close();
+          if (angleEmbeddings.length > 0) {
+            const singleDim = angleEmbeddings[0].length;
+            while (angleEmbeddings.length < 4) {
+              angleEmbeddings.push(angleEmbeddings[0]);
+            }
+            const combined = new Float32Array(4 * singleDim);
+            for (let aIdx = 0; aIdx < 4; aIdx++) {
+              combined.set(angleEmbeddings[aIdx], aIdx * singleDim);
+            }
+            results.push({ localIdx, embedding: combined.buffer.slice(0) });
+          }
         } catch {
         }
       }
@@ -4078,13 +4134,20 @@
         const union = (a2, b2) => {
           parent[find(a2)] = find(b2);
         };
+        const baseDim = dim % 4 === 0 && dim >= 512 ? Math.floor(dim / 4) : dim;
+        const numRots = dim % 4 === 0 && dim >= 512 ? 4 : 1;
         for (let i2 = 0; i2 < bucket.length; i2++) {
           for (let j2 = i2 + 1; j2 < bucket.length; j2++) {
             const a2 = embeddings[bucket[i2]];
             const b2 = embeddings[bucket[j2]];
-            let dot = 0;
-            for (let k2 = 0; k2 < dim; k2++) dot += a2[k2] * b2[k2];
-            if (dot >= threshold) union(i2, j2);
+            let maxDot = -1;
+            for (let rot = 0; rot < numRots; rot++) {
+              let dot = 0;
+              const bOffset = rot * baseDim;
+              for (let k2 = 0; k2 < baseDim; k2++) dot += a2[k2] * b2[bOffset + k2];
+              if (dot > maxDot) maxDot = dot;
+            }
+            if (maxDot >= threshold) union(i2, j2);
           }
         }
         const components = /* @__PURE__ */ new Map();
@@ -4095,8 +4158,7 @@
         }
         for (const [, members] of components)
           if (members.length >= 2) allGroups.push(members);
-        if (bi2 % 100 === 0)
-          self.postMessage({ type: "detectionProgress", current: bi2 + 1, total: buckets.length });
+        self.postMessage({ type: "detectionProgress", current: bi2 + 1, total: buckets.length });
       }
       self.postMessage({ type: "detectionResults", groups: allGroups });
     }
@@ -4150,13 +4212,20 @@
     const rowsA = endA - startA;
     const rowsB = endB - startB;
     const result = new Float32Array(rowsA * rowsB);
+    const baseDim = dim % 4 === 0 && dim >= 512 ? Math.floor(dim / 4) : dim;
+    const numRots = dim % 4 === 0 && dim >= 512 ? 4 : 1;
     for (let i2 = 0; i2 < rowsA; i2++) {
       const aRow = A2[startA + i2];
       for (let j2 = 0; j2 < rowsB; j2++) {
         const bRow = B2[startB + j2];
-        let dot = 0;
-        for (let k2 = 0; k2 < dim; k2++) dot += aRow[k2] * bRow[k2];
-        result[i2 * rowsB + j2] = dot;
+        let maxDot = -1;
+        for (let rot = 0; rot < numRots; rot++) {
+          let dot = 0;
+          const bOffset = rot * baseDim;
+          for (let k2 = 0; k2 < baseDim; k2++) dot += aRow[k2] * bRow[bOffset + k2];
+          if (dot > maxDot) maxDot = dot;
+        }
+        result[i2 * rowsB + j2] = maxDot;
       }
     }
     return result;

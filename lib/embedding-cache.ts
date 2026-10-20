@@ -2,7 +2,7 @@
 // Stores Float32Array embeddings keyed by mediaKey, persisted across scans.
 // Typical size: ~5KB/item × 48k items = ~238MB for a large library.
 
-const DB_NAME = "gpd-cache-v2"
+const DB_NAME = "gpd-cache-v3"
 const DB_VERSION = 1
 const STORE_NAME = "embeddings"
 

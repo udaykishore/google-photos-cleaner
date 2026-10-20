@@ -87,11 +87,11 @@ self.addEventListener("message", async (event: MessageEvent) => {
 
           const imageData = ctx.getImageData(0, 0, cw, ch);
 
-          // Black frame / low-variance guard: protect against solid black opening frames
+          // Black frame / low-variance guard: protect against solid black/blank opening frames
           const px = imageData.data;
           let sumL = 0;
           let sumSqL = 0;
-          const sampleStep = 16;
+          const sampleStep = 8;
           let sampleCount = 0;
           for (let p = 0; p < px.length; p += sampleStep) {
             const lum = 0.299 * px[p] + 0.587 * px[p + 1] + 0.114 * px[p + 2];
@@ -101,15 +101,23 @@ self.addEventListener("message", async (event: MessageEvent) => {
           }
           const meanL = sumL / sampleCount;
           const varL = sumSqL / sampleCount - meanL * meanL;
-          const isBlank = meanL < 18 && varL < 20;
+          const stdL = Math.sqrt(Math.max(0, varL));
+
+          // A frame is uninformative / blank if:
+          // 1. Dark/black opening frame or fade-in with compression noise/letterboxing (meanL < 50 && stdL < 22)
+          // 2. Uniform/solid color frame (flat gray, white, title card, etc.): stdL < 9
+          // 3. Blown-out white or overexposed blank frame: meanL > 220 && stdL < 18
+          const isBlank = (meanL < 50 && stdL < 22) || (stdL < 9) || (meanL > 220 && stdL < 18);
 
           if (isBlank) {
-            // Assign a unique unit vector per item so black frames never false-match
+            // Assign a completely unique, independent random unit vector so blank frames never false-match
             const dimSize = 1024;
             const uniqueVec = new Float32Array(dimSize);
+            const randomBuf = new Uint32Array(dimSize);
+            crypto.getRandomValues(randomBuf);
             let norm = 0;
             for (let vi = 0; vi < dimSize; vi++) {
-              const v = Math.sin((localIdx + 1) * 9973 + vi * 7919 + angle);
+              const v = (randomBuf[vi] / 4294967295) * 2 - 1;
               uniqueVec[vi] = v;
               norm += v * v;
             }
