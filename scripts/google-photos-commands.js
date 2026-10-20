@@ -136,11 +136,21 @@ async function getAllMediaItems(requestId, args) {
       window.location.pathname.match(/^\/u\/\d+\//)?.[0] || "/"
 
     do {
-      const page = await withTimeout(
-        gptkApi.getItemsByUploadedDate(nextPageId),
-        PAGE_TIMEOUT_MS,
-        "Fetching page from Google Photos"
-      )
+      let page = null
+      try {
+        page = await withTimeout(
+          gptkApi.getItemsByUploadedDate(nextPageId),
+          PAGE_TIMEOUT_MS,
+          "Fetching page from Google Photos"
+        )
+      } catch (fetchErr) {
+        console.warn("[GPD] getItemsByUploadedDate failed, falling back to getItemsByTakenDate:", fetchErr)
+        page = await withTimeout(
+          gptkApi.getItemsByTakenDate(null, "library", nextPageId),
+          PAGE_TIMEOUT_MS,
+          "Fetching page by taken date"
+        )
+      }
       if (!page) {
         console.warn("GPD: Empty page response, stopping pagination")
         break
