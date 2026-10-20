@@ -6,6 +6,12 @@ Forked and enhanced from [Mack Talcott's](https://github.com/mtalcott/google-pho
 
 ---
 
+## Demo
+
+[![Demo](https://google-photos-deduper-public.s3.amazonaws.com/demo-2026-l.webp?1)](https://youtu.be/SeOX98uTVwQ)
+
+---
+
 ## Key Enhancements in this Fork
 
 * **4-Angle Rotation Invariance:** Evaluates 0°, 90°, 180°, and 270° orientation embeddings so duplicate photos taken in portrait vs. landscape or rotated sideways are reliably detected.
